@@ -11,5 +11,5 @@ graph TD
     Cliente[Cliente] -->|POST /orders| API[REST API - OrderController]
     API -->|Salva PENDING & Enfileira| Fila[Fila de Trabalho / Worker Pool]
     Fila -->|Consome Pedido| Worker[Worker Thread]
-    Worker -->|Atualiza Status (PROCESSING/COMPLETED/FAILED)| DB[(Banco de Dados)]
+    Worker -->|"Atualiza Status (PROCESSING, COMPLETED, FAILED)"| DB[("Banco de Dados")]
 ```
