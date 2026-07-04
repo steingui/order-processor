@@ -5,6 +5,9 @@ import com.example.orderprocessor.dto.OrderResponse;
 import com.example.orderprocessor.model.Order;
 import com.example.orderprocessor.model.OrderStatus;
 import com.example.orderprocessor.repository.OrderRepository;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -21,6 +24,8 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final OrderQueue orderQueue;
+    private final Tracer tracer;
+    private final MeterRegistry meterRegistry;
 
     @Transactional
     public OrderResponse createOrder(OrderRequest request) {
@@ -32,19 +37,22 @@ public class OrderService {
 
         Order savedOrder = orderRepository.save(order);
 
+        Span currentSpan = tracer.currentSpan();
+
         if (TransactionSynchronizationManager.isActualTransactionActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    orderQueue.submit(savedOrder.getId());
+                    orderQueue.submit(new OrderTask(savedOrder.getId(), currentSpan));
                     log.info("Pedido enfileirado após o commit da transação: ID={}", savedOrder.getId());
                 }
             });
         } else {
-            orderQueue.submit(savedOrder.getId());
+            orderQueue.submit(new OrderTask(savedOrder.getId(), currentSpan));
             log.info("Pedido enfileirado sem transação ativa: ID={}", savedOrder.getId());
         }
 
+        meterRegistry.counter("order.created", "status", "success").increment();
         log.info("Pedido criado no banco: ID={}, Cliente={}", savedOrder.getId(), savedOrder.getCustomerName());
         return OrderResponse.fromEntity(savedOrder);
     }
@@ -68,7 +76,6 @@ public class OrderService {
             return;
         }
         order.setStatus(OrderStatus.PROCESSING);
-        orderRepository.save(order);
         log.info("Pedido marcado como PROCESSING: ID={}", id);
     }
 
@@ -84,7 +91,7 @@ public class OrderService {
             return;
         }
         order.setStatus(OrderStatus.COMPLETED);
-        orderRepository.save(order);
+        meterRegistry.counter("order.processed", "status", "completed").increment();
         log.info("Pedido marcado como COMPLETED: ID={}", id);
     }
 
@@ -93,7 +100,7 @@ public class OrderService {
         Order order = orderRepository.findById(id).orElse(null);
         if (order != null) {
             order.setStatus(OrderStatus.FAILED);
-            orderRepository.save(order);
+            meterRegistry.counter("order.processed", "status", "failed").increment();
             log.error("Pedido marcado como FAILED: ID={}, Motivo={}", id, reason);
         } else {
             log.error("Falha no worker ao marcar como erro: pedido não encontrado: ID={}, Motivo={}", id, reason);

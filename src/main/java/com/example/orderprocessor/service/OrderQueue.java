@@ -1,20 +1,19 @@
 package com.example.orderprocessor.service;
 
 import org.springframework.stereotype.Component;
-import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
 @Component
 public class OrderQueue {
 
-    private final BlockingQueue<UUID> queue = new LinkedBlockingQueue<>();
+    private final BlockingQueue<OrderTask> queue = new LinkedBlockingQueue<>();
 
-    public void submit(UUID orderId) {
-        queue.add(orderId);
+    public void submit(OrderTask task) {
+        queue.add(task);
     }
 
-    public UUID take() throws InterruptedException {
+    public OrderTask take() throws InterruptedException {
         return queue.take();
     }
 

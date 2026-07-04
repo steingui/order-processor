@@ -1,5 +1,9 @@
 package com.example.orderprocessor.service;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
@@ -7,7 +11,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -19,6 +22,8 @@ public class OrderWorkerPool {
 
     private final OrderQueue orderQueue;
     private final OrderService orderService;
+    private final Tracer tracer;
+    private final MeterRegistry meterRegistry;
 
     @Value("${app.workers.count:4}")
     private int workersCount;
@@ -37,26 +42,54 @@ public class OrderWorkerPool {
     private void workerTask() {
         log.info("Worker thread iniciada: {}", Thread.currentThread().getName());
         while (!Thread.currentThread().isInterrupted()) {
-            UUID orderId = null;
+            OrderTask task = null;
             try {
-                orderId = orderQueue.take();
-                orderService.startProcessing(orderId);
+                task = orderQueue.take();
+                
+                Span childSpan;
+                if (task.parentSpan() != null) {
+                    childSpan = tracer.nextSpan(task.parentSpan());
+                } else {
+                    childSpan = tracer.nextSpan();
+                }
+                childSpan.name("order-processing").start();
 
-                // Simula o tempo de processamento do pedido
-                log.info("Processando pedido ID={} na thread {}", orderId, Thread.currentThread().getName());
-                Thread.sleep(3000); 
+                try (Tracer.SpanInScope ws = tracer.withSpan(childSpan)) {
+                    Timer.Sample sample = Timer.start(meterRegistry);
+                    String statusTag = "completed";
+                    try {
+                        orderService.startProcessing(task.orderId());
 
-                orderService.completeProcessing(orderId);
+                        log.info("Processando pedido ID={} na thread {}", task.orderId(), Thread.currentThread().getName());
+                        Thread.sleep(3000); 
+
+                        orderService.completeProcessing(task.orderId());
+                    } catch (InterruptedException e) {
+                        statusTag = "failed";
+                        log.info("Worker thread interrompida durante o processamento do pedido: {}", task.orderId());
+                        if (task.orderId() != null) {
+                            orderService.failProcessing(task.orderId(), "Worker thread interrupted");
+                        }
+                        Thread.currentThread().interrupt();
+                    } catch (Exception e) {
+                        statusTag = "failed";
+                        if (task.orderId() != null) {
+                            orderService.failProcessing(task.orderId(), e.getMessage());
+                        } else {
+                            log.error("Erro inesperado no worker", e);
+                        }
+                    } finally {
+                        sample.stop(meterRegistry.timer("order.processing.time", "status", statusTag));
+                    }
+                } finally {
+                    childSpan.end();
+                }
             } catch (InterruptedException e) {
-                log.info("Worker thread interrompida: {}", Thread.currentThread().getName());
+                log.info("Worker thread interrompida no aguardo da fila: {}", Thread.currentThread().getName());
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
-                if (orderId != null) {
-                    orderService.failProcessing(orderId, e.getMessage());
-                } else {
-                    log.error("Erro inesperado no worker", e);
-                }
+                log.error("Erro inesperado no loop principal do worker", e);
             }
         }
     }

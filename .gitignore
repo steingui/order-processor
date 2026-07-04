@@ -33,5 +33,12 @@ out/
 /nbdist/
 /.nb-gradle/
 
-### VS Code ###
 .vscode/
+
+### Custom Agent and Graphify ###
+graphify-out/
+Projeto 2 — Sistema de Processamento de Pedidos com Filas Locais
+Projeto 3 — API com Observabilidade Total.txt
+*.log
+.antigravity/
+.gemini/
