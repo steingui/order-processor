@@ -1,5 +1,4 @@
-import urllib.request
-import urllib.parse
+import requests
 import json
 import time
 import random
@@ -16,18 +15,17 @@ def send_order(client_id):
         "totalAmount": round(random.uniform(10.0, 500.0), 2)
     }
     data = json.dumps(payload).encode('utf-8')
-    req = urllib.request.Request(
-        URL, 
-        data=data, 
-        headers={'Content-Type': 'application/json'}
-    )
     start = time.time()
     try:
-        with urllib.request.urlopen(req) as resp:
+        with requests.post(
+            URL,
+            data=data,
+            headers={'Content-Type': 'application/json'}
+        ) as resp:
             latency = (time.time() - start) * 1000
             correlation_id = resp.headers.get("X-Correlation-ID", "N/A")
-            status = resp.status
-            body = json.loads(resp.read().decode('utf-8'))
+            status = resp.status_code
+            body = json.loads(resp.content.decode('utf-8'))
             order_id = body.get("id")
             return {
                 "success": status == 202,
