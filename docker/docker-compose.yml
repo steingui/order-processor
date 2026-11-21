@@ -13,6 +13,7 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    read_only: true
 
   jaeger:
     image: jaegertracing/all-in-one:latest
@@ -26,6 +27,7 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    read_only: true
 
   grafana:
     image: grafana/grafana:latest
@@ -40,3 +42,4 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    read_only: true
